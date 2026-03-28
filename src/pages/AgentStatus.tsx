@@ -1,14 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { listSessions } from '../lib/gateway';
+import { listSessions, GATEWAY_URL, getGatewayHeaders } from '../lib/gateway';
 import type { GatewayStatus, GatewaySession } from '../types';
 import { RefreshCw, Wifi, WifiOff, Clock, Server, Cpu } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-
-// ─── Module-level constants (do NOT read env inside component body) ──────────
-const GATEWAY_BASE_URL = (import.meta.env.VITE_GATEWAY_URL as string)
-  .replace(/^ws/, 'http')
-  .replace(/\/$/, '');
-const GATEWAY_TOKEN = import.meta.env.VITE_GATEWAY_TOKEN as string;
 
 // ─── Static agent definitions ──────────────────────────────────────────────
 
@@ -200,8 +194,8 @@ export default function AgentStatus() {
       // Fetch raw status for memory/node data
       const [statusResult, sessionsResult] = await Promise.allSettled([
         (async () => {
-          const res = await fetch(`${GATEWAY_BASE_URL}/api/status`, {
-            headers: { Authorization: `Bearer ${GATEWAY_TOKEN}` },
+          const res = await fetch(`${GATEWAY_URL}/api/status`, {
+            headers: getGatewayHeaders(),
           });
           if (!res.ok) throw new Error('Gateway unreachable');
           return res.json() as Promise<Record<string, unknown>>;

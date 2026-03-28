@@ -1,22 +1,32 @@
 import type { GatewayStatus, GatewaySession, CronJob, CronRun } from '../types';
 
-const BASE_URL = (import.meta.env.VITE_GATEWAY_URL as string)
-  .replace(/^ws/, 'http')
-  .replace(/\/$/, '');
+const _rawUrl = import.meta.env.VITE_GATEWAY_URL as string;
+const _rawToken = import.meta.env.VITE_GATEWAY_TOKEN as string;
 
-const TOKEN = import.meta.env.VITE_GATEWAY_TOKEN as string;
+if (!_rawUrl || !_rawToken) {
+  throw new Error(
+    'Missing Gateway environment variables. Check VITE_GATEWAY_URL and VITE_GATEWAY_TOKEN in .env'
+  );
+}
+
+export const GATEWAY_URL = _rawUrl.replace(/^ws/, 'http').replace(/\/$/, '');
+export const GATEWAY_TOKEN = _rawToken;
+
+export function getGatewayHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${GATEWAY_TOKEN}`,
+    'Content-Type': 'application/json',
+  };
+}
 
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
 function authHeaders(): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${TOKEN}`,
-  };
+  return getGatewayHeaders();
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${GATEWAY_URL}${path}`, {
     method: 'GET',
     headers: authHeaders(),
   });
@@ -27,7 +37,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 async function invokeTool<T>(tool: string, params: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/tools/invoke`, {
+  const res = await fetch(`${GATEWAY_URL}/api/tools/invoke`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ tool, params }),

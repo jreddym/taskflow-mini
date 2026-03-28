@@ -194,7 +194,7 @@ export default function AgentStatus() {
       // Fetch raw status for memory/node data
       const [statusResult, sessionsResult] = await Promise.allSettled([
         (async () => {
-          const res = await fetch(`${GATEWAY_URL}/api/status`, {
+          const res = await fetch(`${GATEWAY_URL}/health`, {
             headers: getGatewayHeaders(),
           });
           if (!res.ok) throw new Error('Gateway unreachable');

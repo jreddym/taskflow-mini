@@ -52,11 +52,11 @@ async function invokeTool<T>(tool: string, params: Record<string, unknown> = {})
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
- * GET /api/status — gateway health, uptime, version
+ * GET /health — gateway health check
  */
 export async function fetchGatewayStatus(): Promise<GatewayStatus> {
   try {
-    const data = await get<Record<string, unknown>>('/api/status');
+    const data = await get<Record<string, unknown>>('/health');
     return {
       status: 'online',
       uptime: data.uptime as number | undefined,

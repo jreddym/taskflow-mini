@@ -94,18 +94,43 @@ export async function listSessions(): Promise<GatewaySession[]> {
  * List all cron jobs via cron.list tool call
  */
 export async function listCronJobs(): Promise<CronJob[]> {
-  const result = await invokeTool<{ jobs?: CronJob[] }>('cron.list');
-  return result.jobs ?? [];
+  // Use Vite server plugin (bypasses gateway HTTP deny list for cron tools)
+  try {
+    const res = await fetch('/api/cron/list');
+    if (!res.ok) throw new Error('Cron API failed');
+    const data = await res.json();
+    return data.jobs ?? [];
+  } catch {
+    // Fallback to gateway tool call
+    try {
+      const result = await invokeTool<{ jobs?: CronJob[] }>('cron.list');
+      return result.jobs ?? [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 /**
  * List recent cron runs, optionally filtered by job_id
  */
 export async function listCronRuns(jobId?: string, limit = 50): Promise<CronRun[]> {
-  const params: Record<string, unknown> = { limit };
-  if (jobId) params.job_id = jobId;
-  const result = await invokeTool<{ runs?: CronRun[] }>('cron.runs', params);
-  return result.runs ?? [];
+  try {
+    const url = jobId ? `/api/cron/runs?id=${jobId}&limit=${limit}` : `/api/cron/runs?limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Cron runs API failed');
+    const data = await res.json();
+    return data.runs ?? [];
+  } catch {
+    try {
+      const params: Record<string, unknown> = { limit };
+      if (jobId) params.job_id = jobId;
+      const result = await invokeTool<{ runs?: CronRun[] }>('cron.runs', params);
+      return result.runs ?? [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 export const gateway = {

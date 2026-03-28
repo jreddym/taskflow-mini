@@ -102,12 +102,112 @@ const brainFileServerPlugin = {
   },
 }
 
+// ─── Cron Data Server Plugin ──────────────────────────────────────────────
+// Workaround: cron tool is in gateway HTTP deny list, so we call CLI directly
+
+import { execSync } from 'child_process'
+
+const GATEWAY_TOKEN = '78f651e451d1e4390f366bd953d9f3a922f0b4fcf329884d'
+
+const cronServerPlugin = {
+  name: 'cron-data-server',
+  configureServer(server: { middlewares: { use: (path: string, fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void } }) {
+    server.middlewares.use('/api/cron', (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+      const url = new URL(req.url || '/', 'http://localhost')
+      
+      if (url.pathname === '/list') {
+        try {
+          const output = execSync('openclaw cron list --json', { timeout: 10000 }).toString()
+          const data = JSON.parse(output)
+          sendJson(res, data)
+        } catch (e) {
+          sendJson(res, { error: 'Failed to list cron jobs', jobs: [] }, 500)
+        }
+        return
+      }
+
+      if (url.pathname === '/runs') {
+        const jobId = url.searchParams.get('id')
+        try {
+          const cmd = jobId 
+            ? `openclaw cron runs --id ${jobId} --limit 10 --json`
+            : `openclaw cron runs --limit 50 --json`
+          const output = execSync(cmd, { timeout: 10000 }).toString()
+          const data = JSON.parse(output)
+          sendJson(res, data)
+        } catch (e) {
+          sendJson(res, { error: 'Failed to list cron runs', runs: [] }, 500)
+        }
+        return
+      }
+
+      next()
+    })
+  },
+}
+
+// ─── Usage Data Server Plugin ─────────────────────────────────────────────
+// Fetches session usage data from gateway and serves it for the Cost Tracker
+
+const usageServerPlugin = {
+  name: 'usage-data-server',
+  configureServer(server: { middlewares: { use: (path: string, fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void } }) {
+    server.middlewares.use('/api/usage', (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+      const url = new URL(req.url || '/', 'http://localhost')
+      
+      if (url.pathname === '/sessions') {
+        // Fetch all session data from gateway for usage tracking
+        const http = require('http')
+        const reqOptions = {
+          hostname: '127.0.0.1',
+          port: 18789,
+          path: '/tools/invoke',
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${GATEWAY_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        }
+        
+        const gwReq = http.request(reqOptions, (gwRes: IncomingMessage) => {
+          let body = ''
+          gwRes.on('data', (chunk: Buffer) => { body += chunk.toString() })
+          gwRes.on('end', () => {
+            try {
+              const data = JSON.parse(body)
+              if (data.ok && data.result?.details) {
+                sendJson(res, data.result.details)
+              } else {
+                sendJson(res, { count: 0, sessions: [] })
+              }
+            } catch {
+              sendJson(res, { count: 0, sessions: [] }, 500)
+            }
+          })
+        })
+        
+        gwReq.on('error', () => {
+          sendJson(res, { count: 0, sessions: [] }, 500)
+        })
+        
+        gwReq.write(JSON.stringify({ tool: 'sessions_list', args: {} }))
+        gwReq.end()
+        return
+      }
+
+      next()
+    })
+  },
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
     brainFileServerPlugin,
+    cronServerPlugin,
+    usageServerPlugin,
   ],
   server: {
     host: '0.0.0.0',

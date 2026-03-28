@@ -109,4 +109,15 @@ export default defineConfig({
     tailwindcss(),
     brainFileServerPlugin,
   ],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    proxy: {
+      '/api/gateway': {
+        target: 'http://127.0.0.1:18789',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/gateway/, ''),
+      },
+    },
+  },
 })

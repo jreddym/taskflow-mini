@@ -1,15 +1,16 @@
 import type { GatewayStatus, GatewaySession, CronJob, CronRun } from '../types';
 
-const _rawUrl = import.meta.env.VITE_GATEWAY_URL as string;
 const _rawToken = import.meta.env.VITE_GATEWAY_TOKEN as string;
 
-if (!_rawUrl || !_rawToken) {
+if (!_rawToken) {
   throw new Error(
-    'Missing Gateway environment variables. Check VITE_GATEWAY_URL and VITE_GATEWAY_TOKEN in .env'
+    'Missing Gateway environment variable. Check VITE_GATEWAY_TOKEN in .env'
   );
 }
 
-export const GATEWAY_URL = _rawUrl.replace(/^ws/, 'http').replace(/\/$/, '');
+// Use the Vite proxy path so browser requests route through the dev server.
+// The actual gateway target (http://127.0.0.1:18789) is configured in vite.config.ts.
+export const GATEWAY_URL = '/api/gateway';
 export const GATEWAY_TOKEN = _rawToken;
 
 export function getGatewayHeaders(): Record<string, string> {

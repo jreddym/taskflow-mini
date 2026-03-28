@@ -1,5 +1,103 @@
 # QA Report — PureAura Command Centre v1
 
+---
+
+## Re-Test Results (Round 2)
+
+**Reviewer:** VIKRAM (QA & Testing Lead)
+**Date:** 2026-03-28
+**Branch:** `develop` (HEAD: `0e1392c`)
+**Scope:** Verify fixes for BUG-003, BUG-001, BUG-002; full regression check
+
+---
+
+### BUG-003 (P1): service_role key replaced — ✅ VERIFIED
+
+| Check | Result |
+|-------|--------|
+| `.env` contains `sb_publishable_3_E1hFhQKXv0Td2SqK75gA_KiVcDea3` | ✅ Confirmed |
+| Old JWT with "service_role" NOT present in `.env` | ✅ Confirmed |
+| `.env.example` exists with placeholder values | ✅ Present at repo root |
+| `grep -r "service_role" src/ .env` — no matches | ✅ Clean — zero matches |
+| RLS enabled on sprint_board, api_usage, activity_log | ✅ Migration `supabase/migrations/20260328_rls_policies.sql` confirms `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` on all three tables |
+| Permissive anon policies created | ✅ Three `CREATE POLICY` statements in migration — anon full access |
+
+**Verdict: FIXED.** The high-severity security issue is fully resolved. The migration file provides an auditable record of RLS enablement.
+
+---
+
+### BUG-001 (P2): Gateway constants deduplicated — ✅ VERIFIED
+
+| Check | Result |
+|-------|--------|
+| `src/pages/AgentStatus.tsx` does NOT read `VITE_GATEWAY_URL` / `VITE_GATEWAY_TOKEN` directly | ✅ Zero `import.meta.env.VITE_GATEWAY` references in AgentStatus.tsx |
+| `src/lib/gateway.ts` exports `GATEWAY_URL` | ✅ Present |
+| `src/lib/gateway.ts` exports `GATEWAY_TOKEN` | ✅ Present |
+| `src/lib/gateway.ts` exports `getGatewayHeaders()` | ✅ Present — returns `Authorization: Bearer` + `Content-Type` headers |
+| `gateway.ts` has env-var validation (throws if missing) | ✅ Module-level guard: throws `Error('Missing Gateway environment variables…')` if either var is falsy |
+
+**Verdict: FIXED.** gateway.ts is now the single source of truth for gateway config. Env-var validation is present and throws a clear error.
+
+---
+
+### BUG-002 (P2): Brain Viewer dynamic file serving — ✅ VERIFIED
+
+| Check | Result |
+|-------|--------|
+| `vite.config.ts` has `brain-file-server` plugin | ✅ Plugin defined and registered — serves `/api/brain/tree` and `/api/brain/file` |
+| Plugin has path-traversal protection | ✅ `path.resolve` check prevents escaping BRAIN_DIR |
+| `src/pages/BrainViewer.tsx` has NO hardcoded FILE_TREE / FILE_CONTENTS | ✅ No static data found |
+| Fetches from `/api/brain/tree` | ✅ Line 182 |
+| Fetches from `/api/brain/file?path=...` | ✅ Line 203 |
+| Loading states present | ✅ `treeLoading`, `contentLoading` states — Loader2 spinner used in UI |
+| Error handling present | ✅ `treeError`, `contentError` states — AlertCircle shown in UI |
+| Auto-selects `priorities/current-week.md` on mount | ✅ Confirmed in tree fetch `.then()` handler |
+
+**Verdict: FIXED.** Brain Viewer is fully dynamic. Loading and error states are handled gracefully.
+
+---
+
+### Regression Check
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✅ Clean — 0 errors |
+| `npm run build` | ✅ Success (1 expected warning: chunk > 500kB — pre-existing, not a regression) |
+| AgentStatus — renders, gateway health, sessions | ✅ No regressions detected |
+| SprintBoard — Kanban DnD, Supabase realtime, filters | ✅ No regressions detected |
+| CostTracker — charts, budget bar, agent breakdown | ✅ No regressions detected |
+| CronMonitor — job list, auto-refresh, offline state | ✅ No regressions detected |
+| ActivityFeed — realtime, filters, pagination | ✅ No regressions detected |
+
+---
+
+### Previously Documented Issues (Round 1) — Status Unchanged
+
+The following Medium/Low issues from Round 1 were not part of this fix scope and remain open:
+
+| # | Severity | Description | Status |
+|---|----------|-------------|--------|
+| 3 | Medium | SprintBoard: no visual error state on initial load failure | Open |
+| 4 | Medium | ActivityFeed: Supabase error silently discarded | Open |
+| 5 | Medium | CostTracker: Supabase error silently discarded | Open |
+| 7 | Medium | BrainViewer `a` href unscreened for `javascript:` scheme | Open |
+| 8 | Medium | Gateway CORS: no client-side handling or docs | Open |
+| 9 | Low | SprintBoard: unused `subscriptionRef` | Open |
+| 10 | Low | ActivityFeed: products re-fetched on every filter change | Open |
+| 12 | Low | Single 1MB JS chunk — no code splitting | Open |
+
+No regressions introduced. All previously passing checks still pass.
+
+---
+
+### Round 2 Final Verdict: ✅ PASS
+
+All three bugs (BUG-003 P1, BUG-001 P2, BUG-002 P2) are **verified fixed**. TypeScript compiles clean. Build succeeds. No regressions detected. The codebase is **ready for staging review**.
+
+> ⚠️ Reminder: The permissive RLS policies (`USING (true)`) are appropriate for an internal-only tool. Before any external/multi-tenant deployment, PRIYA must scope policies to tenant/user context.
+
+---
+
 **Reviewer:** VIKRAM (QA & Testing Lead)  
 **Date:** 2026-03-28  
 **Repo:** `/root/repos/taskflow-mini`  

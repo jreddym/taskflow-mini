@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import {
   ChevronRight,
@@ -8,76 +8,11 @@ import {
   FolderOpen,
   Star,
   Lock,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
-// ─── Hardcoded File Contents ──────────────────────────────────────────────
-
-const FILE_CONTENTS: Record<string, string> = {
-  'priorities/current-week.md': `# Weekly Priorities
-
-## Priority 1: Dental Flow — Fix SSR/indexability on dentalflow.co.in
-## Priority 2: Dental Flow — Visual dental charting UI Phase 1
-## Priority 3: StayHunt — UI polish pass
-## Priority 4: Dentestock — UI polish pass
-`,
-  'projects/command-centre.md': `# PureAura Command Centre
-
-## Overview
-React dashboard to manage the PureAura Technologies AI dev team. A real internal tool used daily.
-
-## Tech Stack
-- **Frontend:** React + TypeScript + Tailwind CSS (Vite)
-- **Backend:** Supabase (pureaura-sprint-board project)
-- **Repo:** ~/repos/taskflow-mini | GitHub: jreddym/taskflow-mini
-- **Dark mode by default, desktop-first**
-
-## Data Sources
-1. **OpenClaw Gateway API** — ws://127.0.0.1:18789 (auth token in ~/.openclaw/openclaw.json → gateway.auth.token)
-2. **Supabase** — sprint_board, api_usage, activity_log tables (creds in sprint-board-config.md)
-
-## 6 Sections
-1. **Agent Status Panel** — 7 agents status, gateway health, auto-refresh 30s
-2. **Sprint Board (Kanban)** — Drag-drop, filters, realtime, create tasks
-3. **API Usage & Cost Tracker** — Token usage, cost calc, budget bar ($100/mo)
-4. **Cron Job Monitor** — 8 jobs, status indicators
-5. **Activity Feed** — Real-time agent action log
-6. **Brain Folder Viewer** — Markdown file viewer (read-only)
-
-## Layout
-- Top bar: title + gateway status indicator (green dot)
-- Left sidebar: section navigation
-- Main: selected section content
-
-## Sprint Plan (5 days)
-- **Day 1:** Project scaffold (Arjun) + Supabase/Gateway API layer (Priya)
-- **Day 2:** Agent Status Panel + Kanban start + Realtime subscriptions
-- **Day 3:** Kanban finish + Cost Tracker + Cron Monitor + Brain file server
-- **Day 4:** Activity Feed + Brain Viewer + QA begins + Deployment setup
-- **Day 5:** QA complete + Security review + Docs + Polish
-
-## Team Assignments
-- **ARJUN** (6 tasks): All UI sections
-- **PRIYA** (4 tasks): Supabase client, Gateway API, Realtime, Brain file server
-- **VIKRAM** (2 tasks): Full QA pass + Security review
-- **MEERA** (1 task): Deployment setup
-- **RAHUL** (1 task): Documentation
-
-## Supabase Tables
-- sprint_board (existing)
-- api_usage (created 2026-03-28)
-- activity_log (created 2026-03-28)
-
-## Cost Model (per 1M tokens)
-| Model | Input | Output |
-|-------|-------|--------|
-| Opus | $15 | $75 |
-| Sonnet | $3 | $15 |
-| Haiku | $0.80 | $4 |
-| Monthly budget | $100 | |
-`,
-};
-
-// ─── File Tree Definition ─────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────
 
 interface FileNode {
   name: string;
@@ -85,30 +20,6 @@ interface FileNode {
   children?: FileNode[];
   starred?: boolean;
 }
-
-const TREE: FileNode[] = [
-  {
-    name: 'brain',
-    children: [
-      {
-        name: 'priorities',
-        children: [
-          { name: 'current-week.md', path: 'priorities/current-week.md', starred: true },
-        ],
-      },
-      {
-        name: 'projects',
-        children: [
-          { name: 'command-centre.md', path: 'projects/command-centre.md' },
-        ],
-      },
-      { name: 'agents', children: [] },
-      { name: 'decisions', children: [] },
-      { name: 'meetings', children: [] },
-      { name: 'retrospectives', children: [] },
-    ],
-  },
-];
 
 // ─── Tree Node Component ──────────────────────────────────────────────────
 
@@ -255,9 +166,58 @@ const mdComponents: Components = {
 // ─── Main Component ───────────────────────────────────────────────────────
 
 export default function BrainViewer() {
-  const [selectedPath, setSelectedPath] = useState<string>('priorities/current-week.md');
+  const [tree, setTree] = useState<FileNode[]>([]);
+  const [treeLoading, setTreeLoading] = useState(true);
+  const [treeError, setTreeError] = useState<string | null>(null);
 
-  const content = selectedPath ? FILE_CONTENTS[selectedPath] : null;
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [content, setContent] = useState<string | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+
+  // Fetch file tree on mount
+  useEffect(() => {
+    setTreeLoading(true);
+    setTreeError(null);
+    fetch('/api/brain/tree')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load tree (${res.status})`);
+        return res.json() as Promise<FileNode[]>;
+      })
+      .then((data) => {
+        setTree(data);
+        // Auto-select priorities/current-week.md on first render
+        setSelectedPath('priorities/current-week.md');
+      })
+      .catch((err: unknown) => {
+        setTreeError(err instanceof Error ? err.message : 'Failed to load file tree');
+      })
+      .finally(() => setTreeLoading(false));
+  }, []);
+
+  // Fetch file content when selection changes
+  const fetchContent = useCallback((filePath: string) => {
+    setContentLoading(true);
+    setContentError(null);
+    setContent(null);
+    fetch(`/api/brain/file?path=${encodeURIComponent(filePath)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load file (${res.status})`);
+        return res.text();
+      })
+      .then((text) => setContent(text))
+      .catch((err: unknown) => {
+        setContentError(err instanceof Error ? err.message : 'Failed to load file content');
+      })
+      .finally(() => setContentLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (selectedPath) {
+      fetchContent(selectedPath);
+    }
+  }, [selectedPath, fetchContent]);
+
   const fileName = selectedPath ? selectedPath.split('/').pop() : null;
 
   return (
@@ -294,7 +254,22 @@ export default function BrainViewer() {
       <div className="flex gap-4 flex-1 min-h-0" style={{ height: 'calc(100vh - 280px)' }}>
         {/* Left: file tree */}
         <div className="w-56 flex-shrink-0 bg-gray-800 rounded-xl overflow-y-auto p-2">
-          {TREE.map((node) => (
+          {treeLoading && (
+            <div className="flex items-center gap-2 px-2 py-3 text-gray-400 text-sm">
+              <Loader2 size={14} className="animate-spin" />
+              <span>Loading…</span>
+            </div>
+          )}
+          {treeError && (
+            <div className="flex items-start gap-2 px-2 py-3 text-red-400 text-xs">
+              <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+              <span>{treeError}</span>
+            </div>
+          )}
+          {!treeLoading && !treeError && tree.length === 0 && (
+            <p className="px-2 py-3 text-gray-500 text-sm">No files found.</p>
+          )}
+          {!treeLoading && !treeError && tree.map((node) => (
             <TreeNode
               key={node.name}
               node={node}
@@ -326,6 +301,16 @@ export default function BrainViewer() {
             {!selectedPath ? (
               <div className="flex items-center justify-center h-full text-gray-500 text-sm">
                 Select a file from the tree to view its contents
+              </div>
+            ) : contentLoading ? (
+              <div className="flex items-center justify-center h-full gap-2 text-gray-400 text-sm">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Loading file…</span>
+              </div>
+            ) : contentError ? (
+              <div className="flex items-center justify-center h-full gap-2 text-red-400 text-sm">
+                <AlertCircle size={16} />
+                <span>{contentError}</span>
               </div>
             ) : content == null ? (
               <div className="flex items-center justify-center h-full text-gray-500 text-sm">

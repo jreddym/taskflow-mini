@@ -38,7 +38,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 async function invokeTool<T>(tool: string, params: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${GATEWAY_URL}/api/tools/invoke`, {
+  const res = await fetch(`${GATEWAY_URL}/tools/invoke`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ tool, params }),
@@ -46,7 +46,21 @@ async function invokeTool<T>(tool: string, params: Record<string, unknown> = {})
   if (!res.ok) {
     throw new Error(`Gateway tool "${tool}" failed: ${res.status} ${res.statusText}`);
   }
-  return res.json() as Promise<T>;
+  const json = await res.json();
+
+  // Gateway wraps tool results: { ok: true, result: { content: [...], details: {...} } }
+  if (json.ok && json.result) {
+    // Prefer details (structured data) over content (text)
+    if (json.result.details) return json.result.details as T;
+    // Fallback: try parsing content[0].text
+    if (json.result.content?.[0]?.text) {
+      try { return JSON.parse(json.result.content[0].text) as T; } catch { /* fall through */ }
+    }
+    return json.result as T;
+  }
+
+  // If not wrapped, return as-is
+  return json as T;
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────

@@ -4,6 +4,12 @@ import type { GatewayStatus, GatewaySession } from '../types';
 import { RefreshCw, Wifi, WifiOff, Clock, Server, Cpu } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
+// ─── Module-level constants (do NOT read env inside component body) ──────────
+const GATEWAY_BASE_URL = (import.meta.env.VITE_GATEWAY_URL as string)
+  .replace(/^ws/, 'http')
+  .replace(/\/$/, '');
+const GATEWAY_TOKEN = import.meta.env.VITE_GATEWAY_TOKEN as string;
+
 // ─── Static agent definitions ──────────────────────────────────────────────
 
 interface AgentDef {
@@ -188,19 +194,14 @@ export default function AgentStatus() {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  const BASE_URL = (import.meta.env.VITE_GATEWAY_URL as string)
-    .replace(/^ws/, 'http')
-    .replace(/\/$/, '');
-  const TOKEN = import.meta.env.VITE_GATEWAY_TOKEN as string;
-
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       // Fetch raw status for memory/node data
       const [statusResult, sessionsResult] = await Promise.allSettled([
         (async () => {
-          const res = await fetch(`${BASE_URL}/api/status`, {
-            headers: { Authorization: `Bearer ${TOKEN}` },
+          const res = await fetch(`${GATEWAY_BASE_URL}/api/status`, {
+            headers: { Authorization: `Bearer ${GATEWAY_TOKEN}` },
           });
           if (!res.ok) throw new Error('Gateway unreachable');
           return res.json() as Promise<Record<string, unknown>>;
@@ -229,7 +230,7 @@ export default function AgentStatus() {
       setLoading(false);
       setLastRefresh(new Date());
     }
-  }, [BASE_URL, TOKEN]);
+  }, []);
 
   useEffect(() => {
     refresh();

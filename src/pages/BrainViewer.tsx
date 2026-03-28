@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import {
   ChevronRight,
   ChevronDown,
@@ -180,7 +180,7 @@ function TreeNode({ node, depth, selected, onSelect }: TreeNodeProps) {
 
 // ─── Markdown Renderer Styles ─────────────────────────────────────────────
 
-const mdComponents = {
+const mdComponents: Components = {
   h1: ({ children }: { children?: React.ReactNode }) => (
     <h1 className="text-2xl font-bold text-white mb-4 pb-2 border-b border-gray-700">{children}</h1>
   ),
@@ -332,7 +332,7 @@ export default function BrainViewer() {
                 No content available for this file yet.
               </div>
             ) : (
-              <ReactMarkdown components={mdComponents as never}>
+              <ReactMarkdown components={mdComponents}>
                 {content}
               </ReactMarkdown>
             )}

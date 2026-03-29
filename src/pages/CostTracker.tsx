@@ -24,6 +24,50 @@ interface UsageRow {
   cost_usd?: number;
 }
 
+/** Shape returned by /api/usage/sessions */
+interface LiveSessionEntry {
+  key?: string;
+  model?: string;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
+  [k: string]: unknown;
+}
+
+/** Extract agent short-name from a session key like "agent:jr:discord:..." */
+function agentFromKey(key?: string): string {
+  if (!key) return 'unknown';
+  // key format: agent:<name>:...
+  const parts = key.split(':');
+  if (parts[0] === 'agent' && parts[1]) return parts[1];
+  return key;
+}
+
+/** Fetch live session usage from the gateway plugin endpoint */
+async function fetchLiveSessions(): Promise<UsageRow[]> {
+  try {
+    const res = await fetch('/api/usage/sessions');
+    if (!res.ok) return [];
+    const data = await res.json() as { sessions?: LiveSessionEntry[] } | LiveSessionEntry[];
+    const entries: LiveSessionEntry[] = Array.isArray(data)
+      ? data
+      : (data.sessions ?? []);
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    return entries.map((s) => ({
+      agent_id: agentFromKey(s.key),
+      date: today,
+      model: s.model ?? 'unknown',
+      // live data doesn't split input/output, so spread total across both
+      input_tokens: Math.floor((s.totalTokens ?? 0) / 2),
+      output_tokens: Math.ceil((s.totalTokens ?? 0) / 2),
+      estimated_cost: s.estimatedCostUsd ?? 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 const BUDGET = 100; // USD / month
@@ -106,11 +150,26 @@ export default function CostTracker() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('api_usage')
-        .select('*')
-        .order('date', { ascending: true });
-      if (!error && data) setRows(data as UsageRow[]);
+      const [supabaseResult, liveRows] = await Promise.allSettled([
+        supabase.from('api_usage').select('*').order('date', { ascending: true }),
+        fetchLiveSessions(),
+      ]);
+
+      const supabaseRows: UsageRow[] =
+        supabaseResult.status === 'fulfilled' && !supabaseResult.value.error
+          ? (supabaseResult.value.data as UsageRow[]) ?? []
+          : [];
+
+      const live: UsageRow[] =
+        liveRows.status === 'fulfilled' ? liveRows.value : [];
+
+      // If Supabase has data, show it (and also append live data from today)
+      // If Supabase is empty, show live data only
+      const combined: UsageRow[] = supabaseRows.length > 0
+        ? [...supabaseRows, ...live]
+        : live;
+
+      setRows(combined);
       setLoading(false);
     }
     load();
@@ -190,8 +249,8 @@ export default function CostTracker() {
         <div className="text-gray-400 text-sm">Loading usage data…</div>
       ) : rows.length === 0 ? (
         <div className="bg-gray-800 rounded-xl p-10 text-center">
-          <p className="text-gray-300 text-base font-medium">No usage data recorded yet.</p>
-          <p className="text-gray-500 text-sm mt-1">Cost tracking will populate as agents work.</p>
+          <p className="text-gray-300 text-base font-medium">No usage data available yet.</p>
+          <p className="text-gray-500 text-sm mt-1">Cost tracking will populate as agents work. Live session data loads when the gateway is reachable.</p>
         </div>
       ) : (
         <>

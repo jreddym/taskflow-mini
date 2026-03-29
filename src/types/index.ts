@@ -37,26 +37,36 @@ export interface Agent {
 
 // ─── Cron Jobs ─────────────────────────────────────────────────────────────
 
-export type CronJobStatus = 'active' | 'paused' | 'disabled';
 export type CronRunStatus = 'success' | 'failed' | 'running' | 'skipped';
 
 export interface CronJob {
   id: string;
   name: string;
-  schedule: string; // cron expression
-  status: CronJobStatus;
-  last_run?: string;
-  next_run?: string;
-  description?: string;
+  enabled: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+  schedule: {
+    kind: string;
+    expr: string;
+    tz?: string;
+    staggerMs?: number;
+  };
+  sessionTarget: string;
+  wakeMode?: string;
+  payload?: { kind: string; message?: string };
+  delivery?: { mode: string; channel?: string; to?: string };
+  state?: { nextRunAtMs?: number; lastRunAtMs?: number };
 }
 
 export interface CronRun {
   id: string;
   job_id: string;
-  job_name: string;
+  job_name?: string;
   status: CronRunStatus;
-  started_at: string;
+  started_at?: string;
+  startedAtMs?: number;
   finished_at?: string;
+  finishedAtMs?: number;
   duration_ms?: number;
   output?: string;
   error?: string;

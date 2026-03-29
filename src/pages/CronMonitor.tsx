@@ -1,8 +1,44 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Component } from 'react';
+import type { ReactNode } from 'react';
 import { listCronJobs, listCronRuns } from '../lib/gateway';
 import type { CronJob, CronRun } from '../types';
-import { RefreshCw, Calendar, Clock, CheckCircle2, XCircle, Minus } from 'lucide-react';
+import { RefreshCw, Calendar, Clock, CheckCircle2, XCircle, Minus, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
+
+// ─── Error Boundary ──────────────────────────────────────────────────────────
+
+interface EBState { hasError: boolean; message: string }
+
+class CronErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+
+  static getDerivedStateFromError(err: unknown): EBState {
+    const message = err instanceof Error ? err.message : String(err);
+    return { hasError: true, message };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
+          <AlertTriangle size={40} className="text-yellow-500" />
+          <div className="text-gray-300 font-medium text-lg">Cron Monitor encountered an error</div>
+          <div className="text-gray-500 text-sm font-mono max-w-lg">{this.state.message}</div>
+          <button
+            className="mt-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-sm transition-colors"
+            onClick={() => this.setState({ hasError: false, message: '' })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -30,7 +66,18 @@ function humanizeCron(expr: string): string {
   return map[expr] ?? expr;
 }
 
-function formatTime(iso?: string): string {
+/** Format a ms-epoch timestamp to a display string */
+function formatMs(ms?: number): string {
+  if (!ms) return '—';
+  try {
+    return format(new Date(ms), 'MMM d, HH:mm');
+  } catch {
+    return '—';
+  }
+}
+
+/** Format an ISO string to display */
+function formatIso(iso?: string): string {
   if (!iso) return '—';
   try {
     return format(new Date(iso), 'MMM d, HH:mm');
@@ -39,13 +86,29 @@ function formatTime(iso?: string): string {
   }
 }
 
-function timeAgo(iso?: string): string {
+function timeAgoMs(ms?: number): string {
+  if (!ms) return '—';
+  try {
+    return formatDistanceToNow(new Date(ms), { addSuffix: true });
+  } catch {
+    return '—';
+  }
+}
+
+function timeAgoIso(iso?: string): string {
   if (!iso) return '—';
   try {
     return formatDistanceToNow(new Date(iso), { addSuffix: true });
   } catch {
     return iso;
   }
+}
+
+/** Resolve started_at from a CronRun that may use ISO or ms fields */
+function runStartedAt(run: CronRun): Date | null {
+  if (run.startedAtMs) return new Date(run.startedAtMs);
+  if (run.started_at) return new Date(run.started_at);
+  return null;
 }
 
 // ─── Status indicator ────────────────────────────────────────────────────────
@@ -103,23 +166,32 @@ function JobCard({ job, lastRun }: JobCardProps) {
     runStatus === 'running' ? 'border-yellow-700/40' :
     'border-gray-700';
 
+  // Derive last-run display from lastRun or job.state
+  const lastRunMs = job.state?.lastRunAtMs;
+  const lastRunStart = runStartedAt(lastRun!); // may be null if no lastRun
+  const lastRunDisplay = lastRun
+    ? (lastRunStart ? timeAgoIso(lastRunStart.toISOString()) : timeAgoMs(lastRunMs))
+    : timeAgoMs(lastRunMs);
+  const lastRunFormatted = lastRun
+    ? (lastRunStart ? formatIso(lastRunStart.toISOString()) : formatMs(lastRunMs))
+    : formatMs(lastRunMs);
+
+  const cronExpr = job.schedule?.expr ?? '';
+  const tz = job.schedule?.tz;
+
   return (
     <div className={`bg-gray-800 border ${borderColor} rounded-lg p-4 flex flex-col gap-3 hover:border-gray-500 transition-colors`}>
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="text-white font-medium text-sm truncate">{job.name}</div>
-          {job.description && (
-            <div className="text-gray-400 text-xs mt-0.5 line-clamp-2">{job.description}</div>
+          {tz && (
+            <div className="text-gray-500 text-xs mt-0.5">{tz}</div>
           )}
         </div>
         <div className="shrink-0">
-          {job.status === 'paused' ? (
+          {!job.enabled ? (
             <span className="text-xs px-2 py-0.5 rounded bg-yellow-900/40 text-yellow-300 border border-yellow-700/40">
-              Paused
-            </span>
-          ) : job.status === 'disabled' ? (
-            <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600">
               Disabled
             </span>
           ) : (
@@ -133,9 +205,9 @@ function JobCard({ job, lastRun }: JobCardProps) {
       {/* Schedule */}
       <div className="flex items-center gap-1.5 text-xs text-gray-400">
         <Calendar size={12} className="text-gray-500 shrink-0" />
-        <span className="font-mono">{job.schedule}</span>
+        <span className="font-mono">{cronExpr}</span>
         <span className="text-gray-600">·</span>
-        <span>{humanizeCron(job.schedule)}</span>
+        <span>{humanizeCron(cronExpr)}</span>
       </div>
 
       {/* Divider */}
@@ -149,20 +221,20 @@ function JobCard({ job, lastRun }: JobCardProps) {
         </div>
         <div>
           <div className="text-gray-500 mb-1">Last run</div>
-          <div className="text-gray-300">{timeAgo(job.last_run ?? lastRun?.started_at)}</div>
+          <div className="text-gray-300">{lastRunDisplay}</div>
         </div>
         <div>
           <div className="text-gray-500 mb-1">Last run at</div>
           <div className="flex items-center gap-1 text-gray-400">
             <Clock size={11} />
-            {formatTime(job.last_run ?? lastRun?.started_at)}
+            {lastRunFormatted}
           </div>
         </div>
         <div>
           <div className="text-gray-500 mb-1">Next run</div>
           <div className="flex items-center gap-1 text-gray-400">
             <Clock size={11} />
-            {formatTime(job.next_run)}
+            {formatMs(job.state?.nextRunAtMs)}
           </div>
         </div>
       </div>
@@ -206,9 +278,9 @@ function EmptyState({ offline }: { offline: boolean }) {
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Inner page (wrapped by error boundary) ──────────────────────────────────
 
-export default function CronMonitor() {
+function CronMonitorInner() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [runs, setRuns] = useState<CronRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -250,7 +322,9 @@ export default function CronMonitor() {
   const latestRunByJob: Record<string, CronRun> = {};
   for (const run of runs) {
     const existing = latestRunByJob[run.job_id];
-    if (!existing || new Date(run.started_at) > new Date(existing.started_at)) {
+    const runDate = runStartedAt(run);
+    const existingDate = existing ? runStartedAt(existing) : null;
+    if (!existing || (runDate && existingDate && runDate > existingDate)) {
       latestRunByJob[run.job_id] = run;
     }
   }
@@ -325,5 +399,15 @@ export default function CronMonitor() {
 
       <p className="text-xs text-gray-600 text-center">Auto-refreshes every 60 seconds</p>
     </div>
+  );
+}
+
+// ─── Main export (with error boundary) ───────────────────────────────────────
+
+export default function CronMonitor() {
+  return (
+    <CronErrorBoundary>
+      <CronMonitorInner />
+    </CronErrorBoundary>
   );
 }
